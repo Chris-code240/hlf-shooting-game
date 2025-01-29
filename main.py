@@ -1,8 +1,9 @@
 import pygame
 import math
-from models import  MainCharacter, Villain, Bullet
+from gamemodels import Villain, Bullet, Player, GameLevel, VillainController, MainController
 import random
 import sys
+import time
 # Pygame setup
 pygame.init()
 WIDTH = 800
@@ -10,137 +11,148 @@ HEIGHT = 600
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("HLF Shooting Game")
 clock = pygame.time.Clock()
+player_height=45
+player_width= 45
+player_color = (0, 250, 10)
+villains_on_screen:list[Villain] = []
+contrllers = []
 
-# Character setup
-player_width, player_height = [45, 45]
+game_level = GameLevel(1, 10)
+
+villains_on_screen.append(Villain(((player_width/2), HEIGHT- player_height-(player_height/2)),"up",(WIDTH, HEIGHT),game_level.level_speed))
+
+villains_on_screen.append(Villain((WIDTH-player_width - (player_width/2), HEIGHT- player_height-(player_height/2)),"up",(WIDTH, HEIGHT),game_level.level_speed) )
+
+villains_on_screen.append(Villain((WIDTH-player_width - (player_width/2), int(player_height/2)),"down",(WIDTH, HEIGHT),10))
+
+villain = Villain((player_width/2, int(player_height/2)),"down",(WIDTH, HEIGHT),game_level.level_speed)
+villains_on_screen.append(villain)
+
+
 player_x, player_y = WIDTH // 2 - player_width // 2, HEIGHT // 2 - player_height // 2
-player_speed = 5
-villain_width, villain_height, villain_speed = [45, 45, 20]
-main_character = MainCharacter(HEIGHT, WIDTH,player_x, player_y, player_width, player_height)
 
-villain = Villain(main_character,100, 100, player_width, player_height,"down")
-# rotate_polygon(main_character, 180, calculate_centroid(main_character))
-villains_on_screen = list()
-villains_on_screen.append(Villain(main_character,100, 100, villain_width, villain_height, "up", villain_speed,2,4,1,60))
-villains_on_screen.append(Villain(main_character,WIDTH-100, 100, villain_width, villain_height, "up", villain_speed,0.5,6,2,60))
-villains_on_screen.append(Villain(main_character,WIDTH-100, HEIGHT-100, villain_width, villain_height, "up", villain_speed,1.5,5,1,60))
-villains_on_screen.append(Villain(main_character,50, HEIGHT-100, villain_width, villain_height, "up", villain_speed,1,3,2,60))
-current_direction = main_character.direction
-counter = 0
+player = Player((player_x, player_y),"up",(WIDTH, HEIGHT),10)
+current_direction = player.direction
 bullets = []
-eliminated_color = (255, 0, 0)
-color = (255, 255, 255)
-main_character_bullets = []
-main_character_dead = False
-def check_collision(bullet_point:tuple, polygon:list):
-    x,y = bullet_point
-    inside = False
-    n = len(polygon)
-    px1, py1 = polygon[0]
-    for i in range(n +1):
-        px2, py2 = polygon[i % n]
-        if y  > min(py1, py2):
-            if y <= max(py1, py2):
-                if x <= max(px1, px2):
-                    if py1 != py2:
-                        xinters = (y - py1) * (px2 - px1) / (py2 - py1) + px1
-                        if px1 == px2 or x <= xinters:
-                            inside = not inside
-        px1,py1 = px2, py2
-    return inside
 
-    
-def check_bullet_collision_with_villain(figure1:Villain, figure2:Bullet):
-    if figure2.shot_by == main_character:
+for i in villains_on_screen:
+    i.speed = random.randint(20, 100)
+    contrllers.append(VillainController(i, player, random.randint(100, 150)))
+
+main_contrller = MainController(contrllers)
+counter = 0
+
+def resolve_level():
+    global villains_on_screen
+    main_contrller.sub_controllers = [c for c in main_contrller.sub_controllers if not c.villain.dead]
+    villains_on_screen = [v for v in villains_on_screen if not v.dead]
+    if len(villains_on_screen) < game_level.number_of_villaisn:
+        for i in range( game_level.number_of_villaisn - len(villains_on_screen)):
+            villain = Villain((random.randint(int(player_width/2), WIDTH), random.randint(int(player_height/2), HEIGHT)),['up', 'right', 'down', 'left'][random.randint(0, 3)], player.screen_coordinates, game_level.level_speed)
+            villains_on_screen.append(villain)
+            controller = VillainController(villain, player, operate_time=random.randint(100, 150))
+            main_contrller.sub_controllers.append(controller)
+
+def check_collision(character, bullet:Bullet):
+    """
+    Check if any point of a polygon collides with a pygame.Rect.
+
+    :param rect: pygame.Rect object
+    :param polygon_points: List of (x, y) tuples representing the polygon's points
+    :return: True if any point collides with the rect, False otherwise
+    """
+    if isinstance(bullet.shot_by, Villain) and isinstance(character, Villain):
         return False
-    for point in figure1.points:
-        return figure2.object.collidepoint(point)
-        figure2.object.collideobjectsall()
+    if isinstance(bullet.shot_by, Player) and isinstance(character, Player):
+        return False
+    for point in character.points:
+        if bullet.get_object().collidepoint(point):
+            return True
     return False
-    
-while not main_character_dead:
-    counter += 1
+while True:
+    counter += 10
+    #remove dead villains
+
+    main_contrller.operate(counter = counter)
+    villains_on_screen = [v for v in villains_on_screen if v.dead == False]
+    for v in villains_on_screen:
+        bullets += v.bullets
+    bullets = [b for b in bullets+player.bullets if b.points[0][0] >=0 and b.points[0][0] <= WIDTH and b.points[0][1] >=0 and b.points[0][1] <= HEIGHT]
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             pygame.quit()
             sys.exit()
     
-    bullets = [b for b in bullets if  b.object.x < WIDTH and b.object.y < HEIGHT and b.object.x > 0 and b.object.y > 0 and (b.shot_by in villains_on_screen or b.shot_by == main_character)]
 
     keys = pygame.key.get_pressed()
-    main_character_center = main_character.calculate_centroid()
+    # player_center = player.calculate_centroid()
+ 
+    
+       
     if keys[pygame.K_RIGHT]:
         if current_direction != "right":
-            main_character.direction = "right"
-            main_character.rotate_polygon()
-            current_direction = main_character.direction
-        if main_character_center[0] < WIDTH:
-            main_character.pos_x = player_speed
-            main_character.pos_y = 0
-            main_character.adjust_position()
+            player.direction = "right"
+            player.rotate()
+        else:
+            player.move()
 
     if keys[pygame.K_LEFT]:
         if current_direction != "left":
-            main_character.direction = "left"
-            main_character.rotate_polygon()
-            current_direction = main_character.direction
-        if main_character_center[0] > 0:
-            main_character.move()
+            player.direction = "left"
+            player.rotate()
+        else:
+            player.move()
 
 
     if keys[pygame.K_UP]:
         if current_direction != "up":
-            main_character.direction = "up"
-            main_character.rotate_polygon()
-            current_direction = main_character.direction
-
-        if main_character_center[1]> 0:
-            main_character.move()
+            player.direction = "up"
+            player.rotate()
+            
+        else:
+            player.move()
 
     if keys[pygame.K_DOWN]:
         if current_direction != "down":
-            main_character.direction = "down"
-            main_character.rotate_polygon()
-            current_direction = main_character.direction
-        if main_character_center[1] < HEIGHT:
-            main_character.move()
+            player.direction = "down"
+            player.rotate()
+        else:
+            player.move()
+    current_direction = player.direction
+   
 
     if keys[pygame.K_SPACE]:
-        
-        main_character_bullets.append(Bullet(main_character,main_character_center[0]-player_width //2,main_character_center[1] -player_height//2,direction=current_direction))
-    for villain in villains_on_screen:
-        if counter % villain.rotate_time == 0:
-            villain.rotating = True
-            villain.rotate_randomly()
-        villain_center = villain.calculate_centroid()
-        if counter % villain.move_time == 0:
-            villain.moving = True
-            villain.move()
-        if counter % villain.shoot_time == 0:
-            v_center = villain.calculate_centroid()
-            bullets.append(Bullet(main_character,v_center[0]-player_width //2,v_center[1] -player_height//2,direction=villain.direction))
+        player.shoot()
+
+  
+
 
     screen.fill((0, 0, 0))
-   
-    # Draw bullets
-
-    for bullet in bullets + main_character_bullets:
-        bullet.move()
-        # main_character_dead = True if check_collision((bullet.object.x, bullet.object.y), main_character.points) else False
-        pygame.draw.rect(screen,(255, 255, 255), bullet.get_object())
-
-    for bullet in main_character_bullets:
-        villains_on_screen = [v for v in villains_on_screen if not check_collision((bullet.object.x, bullet.object.y),v.points)]
-
-    pygame.draw.polygon(screen, (0, 250, 10), main_character.points)
-
-    for villain in villains_on_screen:
-        pygame.draw.polygon(screen, color, villain.points)
+    for b in bullets:
+            for v in villains_on_screen+[player]:
+                if check_collision(v, b):
+                    v.dead = True
+                    if isinstance(v, Player):
+                        player_color = (200, 10, 0)
+                        game_level = GameLevel(game_level.level_number + 1, game_level.level_speed + 10)
+                        resolve_level()
+                    continue
+            if counter % 10 == 0:
+                b.move()
+            pygame.draw.rect(screen, (255, 255, 255), b.get_object())
+    pygame.draw.polygon(screen, player_color, player.points) 
 
 
 
+    for v in villains_on_screen:
+        pygame.draw.polygon(screen, (0, 250, 10), v.points)  
+
+    for b in bullets:
+        player.dead = check_collision(player, b)
+ 
     pygame.display.flip()
     clock.tick(60)
+
 
 
 
